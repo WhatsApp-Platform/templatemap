@@ -1,8 +1,8 @@
 package templatemap
 
 import (
-	"testing"
 	"strings"
+	"testing"
 )
 
 func TestLoadDir(t *testing.T) {
@@ -18,7 +18,7 @@ func TestLoadDir(t *testing.T) {
 	}
 
 	// Test t2
-	b :=  new(strings.Builder)
+	b := new(strings.Builder)
 	t2, ok := tmap["sub/t2.tmpl"]
 	if !ok {
 		t.Fatal("sub/t2.tmpl not loaded")

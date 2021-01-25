@@ -16,26 +16,32 @@ import (
 
 type Map map[string]*template.Template
 
-// Loads the templates from a given directory recursively.
+// LoadDir loads the templates from a given directory recursively.
 // Each template is added to the map as it's relative path
 // from the directory being loaded.
 // Each directory may also contain a "_base.tmpl" file,
 // wich will be added as an associated template to the
 // directories and its childrens templates.
 func LoadDir(path string) (Map, error) {
+	return LoadDirFuncs(path, nil)
+}
+
+// LoadDirFuncs does the same as LoadDir, but adds the given
+// funcMap to each template
+func LoadDirFuncs(path string, funcMap template.FuncMap) (Map, error) {
 	m := make(Map)
-	err := m.loadDir(nil, path, "")
+	err := m.loadDir(nil, funcMap, path, "")
 	if err != nil {
 		return nil, err
 	}
 	return m, nil
 }
 
-func (m Map) loadDir(super *template.Template, path, name string) error {
+func (m Map) loadDir(super *template.Template, funcMap template.FuncMap, path, name string) error {
 	basePath := filepath.Join(path, "_base.tmpl")
 	baseName := name + "_base.tmpl"
 
-	base, err := loadTemplate(super, basePath, baseName)
+	base, err := loadTemplate(super, nil, basePath, baseName)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
@@ -49,7 +55,7 @@ func (m Map) loadDir(super *template.Template, path, name string) error {
 		tmplName := name + info.Name()
 
 		if info.IsDir() {
-			err = m.loadDir(base, tmplPath, tmplName+"/")
+			err = m.loadDir(base, funcMap, tmplPath, tmplName+"/")
 			if err != nil {
 				return err
 			}
@@ -60,7 +66,7 @@ func (m Map) loadDir(super *template.Template, path, name string) error {
 			continue
 		}
 
-		tmpl, err := loadTemplate(base, tmplPath, tmplName)
+		tmpl, err := loadTemplate(base, funcMap, tmplPath, tmplName)
 		if err != nil {
 			return err
 		}
@@ -69,7 +75,7 @@ func (m Map) loadDir(super *template.Template, path, name string) error {
 	return nil
 }
 
-func loadTemplate(super *template.Template, path, name string) (*template.Template, error) {
+func loadTemplate(super *template.Template, funcMap template.FuncMap, path, name string) (*template.Template, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -88,6 +94,9 @@ func loadTemplate(super *template.Template, path, name string) (*template.Templa
 			return nil, err
 		}
 		tmpl = superC.New(name)
+	}
+	if funcMap != nil {
+		tmpl.Funcs(funcMap)
 	}
 	return tmpl.Parse(b.String())
 }
