@@ -8,65 +8,78 @@ import (
 	"errors"
 	"html/template"
 	"io"
-	"io/ioutil"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
+// Map represents a map from template names to
+// template.Template instances
 type Map map[string]*template.Template
 
-// LoadDir loads the templates from a given directory recursively.
+// Parser contains the configurations for parsing a
+// template map
+type Parser struct {
+	// The template.FuncMap that will be added to
+	// each template.Template instance in the map
+	FuncMap template.FuncMap
+
+	// A list of options that will be passed to
+	// the template.Template.Option function on
+	// each template.Template instance on the map
+	Options []string
+}
+
+// Parser.ParseFS loads the templates from a given
+// fs.FS recursively.
 // Each template is added to the map as it's relative path
 // from the directory being loaded.
-// Each directory may also contain a "_base.tmpl" file,
+// Each directory may also contain a "super.tmpl" file,
 // wich will be added as an associated template to the
 // directories and its childrens templates.
-func LoadDir(path string) (Map, error) {
-	return LoadDirFuncs(path, nil)
-}
-
-// LoadDirFuncs does the same as LoadDir, but adds the given
-// funcMap to each template
-func LoadDirFuncs(path string, funcMap template.FuncMap) (Map, error) {
+func (p *Parser) ParseFS(f fs.FS) (Map, error) {
 	m := make(Map)
-	err := m.loadDir(nil, funcMap, path, "")
-	if err != nil {
-		return nil, err
-	}
-	return m, nil
+	err := p.parseFS(f, m, nil, ".", "")
+	return m, err
 }
 
-func (m Map) loadDir(super *template.Template, funcMap template.FuncMap, path, name string) error {
-	basePath := filepath.Join(path, "_base.tmpl")
-	baseName := name + "_base.tmpl"
+// Parser.ParseDir does the same as Parser.ParseFS, but uses an
+// operating system directory instead.
+func (p *Parser) ParseDir(path string) (Map, error) {
+	return p.ParseFS(os.DirFS(path))
+}
 
-	base, err := loadTemplate(super, nil, basePath, baseName)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+func (p *Parser) parseFS(f fs.FS, m Map, super *template.Template, path, rel string) error {
+	basePath := filepath.Join(path, "super.tmpl")
+	baseName := rel + "super.tmpl"
+
+	super, err := p.parseTemplate(f, super, basePath, baseName)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
 
-	infos, err := ioutil.ReadDir(path)
+	entries, err := fs.ReadDir(f, path)
 	if err != nil {
 		return err
 	}
-	for _, info := range infos {
-		tmplPath := filepath.Join(path, info.Name())
-		tmplName := name + info.Name()
+	for _, entry := range entries {
+		tmplPath := filepath.Join(path, entry.Name())
+		tmplName := rel + entry.Name()
 
-		if info.IsDir() {
-			err = m.loadDir(base, funcMap, tmplPath, tmplName+"/")
+		if entry.IsDir() {
+			err = p.parseFS(f, m, super, tmplPath, tmplName+"/")
 			if err != nil {
 				return err
 			}
 			continue
 		}
 
-		if filepath.Ext(info.Name()) != ".tmpl" || info.Name() == "_base.tmpl" {
+		if filepath.Ext(entry.Name()) != ".tmpl" || entry.Name() == "super.tmpl" {
 			continue
 		}
 
-		tmpl, err := loadTemplate(base, funcMap, tmplPath, tmplName)
+		tmpl, err := p.parseTemplate(f, super, tmplPath, tmplName)
 		if err != nil {
 			return err
 		}
@@ -75,28 +88,53 @@ func (m Map) loadDir(super *template.Template, funcMap template.FuncMap, path, n
 	return nil
 }
 
-func loadTemplate(super *template.Template, funcMap template.FuncMap, path, name string) (*template.Template, error) {
-	file, err := os.Open(path)
+func (p *Parser) parseTemplate(f fs.FS, super *template.Template, path, name string) (*template.Template, error) {
+	file, err := f.Open(path)
 	if err != nil {
 		return nil, err
 	}
+
 	var b strings.Builder
 	_, err = io.Copy(&b, file)
 	if err != nil {
 		return nil, err
 	}
+
 	var tmpl *template.Template
 	if super == nil {
 		tmpl = template.New(name)
 	} else {
 		superC, err := super.Clone()
 		if err != nil {
+			// Impossible error?
 			return nil, err
 		}
 		tmpl = superC.New(name)
 	}
-	if funcMap != nil {
-		tmpl.Funcs(funcMap)
+
+	if p.Options != nil {
+		tmpl.Option(p.Options...)
+	}
+	if p.FuncMap != nil {
+		tmpl.Funcs(p.FuncMap)
 	}
 	return tmpl.Parse(b.String())
+}
+
+// ParseFS loads the templates from a given fs.FS recursively.
+// Each template is added to the map as it's relative path
+// from the directory being loaded.
+// Each directory may also contain a "_base.tmpl" file,
+// wich will be added as an associated template to the
+// directories and its childrens templates.
+func ParseFS(f fs.FS) (Map, error) {
+	var p Parser
+	return p.ParseFS(f)
+}
+
+// ParseDir does the same as ParseFS, but uses an operating
+// system directory instead.
+func ParseDir(path string) (Map, error) {
+	var p Parser
+	return p.ParseDir(path)
 }

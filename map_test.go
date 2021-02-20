@@ -6,7 +6,7 @@ import (
 )
 
 func TestLoadDir(t *testing.T) {
-	tmap, err := LoadDir("templates")
+	tmap, err := ParseDir("templates")
 	if err != nil {
 		t.Fatal(err)
 	}

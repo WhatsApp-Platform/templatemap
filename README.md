@@ -1,4 +1,2 @@
-A collection of utilities for using go templates as html templates.  
-Right now, this library only supports loading templates from a
-directory, but in the future I might add support for loading them
-from a `fs.FS`.
+A collection of utilities for parsing go templates from directories,
+with support for template inheritance.
